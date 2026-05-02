@@ -1,0 +1,634 @@
+---
+title: "Geopolitics"
+format:
+  dashboard:
+    theme: minty
+    logo: logo.png
+    nav-buttons:
+      - linkedin
+      - twitter
+      - github
+execute: 
+  warning: false
+  embed-resources: true
+  code-fold: true
+---
+
+
+```{r}
+#| warning: false
+library(tidyverse)
+library(ggplot2)
+library(ggridges)
+library(lmtest)
+library(knitr)
+library(httr)
+library(jsonlite)
+library(tidyjson)
+library(gt)
+library(countrycode)
+
+democracy_data <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-11-05/democracy_data.csv')
+```
+
+```{r}
+#| results: 'asis'
+
+democracy_data <- democracy_data |> 
+  mutate(
+    continent = case_when(
+      
+      country_code %in% c(
+        "DZA","AGO","BEN","BWA","BFA","BDI","CMR","CPV","CAF","TCD","COM","COG","COD",
+        "CIV","DJI","EGY","GNQ","ERI","SWZ","ETH","GAB","GMB","GHA","GIN","GNB","KEN",
+        "LSO","LBR","LBY","MDG","MWI","MLI","MRT","MUS","MAR","MOZ","NAM","NER","NGA",
+        "RWA","STP","SEN","SYC","SLE","SOM","ZAF","SSD","SDN","TZA","TGO","TUN","UGA",
+        "ZMB","ZWE","ZAR"
+      ) ~ "Africa",
+
+      # North America (incl. Caribbean)
+      country_code %in% c(
+        "CAN","USA","MEX","BHS","BRB","CUB","DMA","DOM","GRD","HTI","JAM",
+        "KNA","LCA","VCT","TTO","ATG"
+      ) ~ "North America",
+
+      # Central America
+      country_code %in% c(
+        "BLZ","CRI","SLV","GTM","HND","NIC","PAN"
+      ) ~ "Central America",
+
+      # South America
+      country_code %in% c(
+        "ARG","BOL","BRA","CHL","COL","ECU","GUY","PRY","PER","SUR","URY","VEN"
+      ) ~ "South America",
+
+      country_code %in% c(
+        "AFG","ARM","AZE","BHR","BGD","BTN","BRN","KHM","CHN","CYP","GEO","IND","IDN",
+        "IRN","IRQ","ISR","JPN","JOR","KAZ","KWT","KGZ","LAO","LBN","MYS","MDV","MNG",
+        "MMR","NPL","PRK","OMN","PAK","PSE","PHL","QAT","SAU","SGP","KOR","LKA","SYR",
+        "TWN","TJK","THA","TLS","TUR","TKM","ARE","UZB","VNM","YEM"
+      ) ~ "Asia",
+
+      country_code %in% c(
+        "ALB","AND","AUT","BLR","BEL","BIH","BGR","HRV","CYP","CZE","DNK","EST","FIN",
+        "FRA","DEU","GRC","HUN","ISL","IRL","ITA","LVA","LIE","LTU","LUX","MLT","MDA",
+        "MCO","MNE","NLD","MKD","NOR","POL","PRT","ROU","RUS","SMR","SRB","SVK","SVN",
+        "ESP","SWE","CHE","UKR","GBR","VAT","GER","ROM"
+      ) ~ "Europe",
+
+      country_code %in% c(
+        "AUS","FJI","KIR","MHL","FSM","NRU","NZL","PLW","PNG","WSM","SLB","TON","TUV",
+        "VUT","NUR"
+      ) ~ "Oceania",
+
+      TRUE ~ NA_character_
+    )
+  ) |> 
+  filter(!is.na(continent))
+```
+
+```{r}
+#| label: population-table
+
+library(rvest)
+
+populations <- read_html("https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population")
+
+pop_data <- populations |>
+  html_element("table.wikitable") |>
+  html_table(fill = TRUE) |>
+  select(
+    Country = 1, 
+    Population = 2
+    ) |>
+  mutate(
+    Country    = trimws(Country),
+    Population = as.numeric(gsub("[^0-9]", "", Population))  # strip anything that isn't a digit
+  ) |>
+  filter(!is.na(Population))
+
+```
+
+```{r}
+#| label: country-data
+
+pop_data <- pop_data |>
+  mutate(
+    iso3c = countrycode(Country, 
+                        origin = "country.name", 
+                        destination = "iso3c"
+                        ))
+
+democracy_data_2020 <- democracy_data |>
+  filter(year == 2020) |>
+  mutate(
+    iso3c = countrycode(country_name, 
+                        origin = "country.name", 
+                        destination = "iso3c"
+                        ))
+
+# Now join based on iso3c country code
+country_data <- pop_data |>
+  inner_join(democracy_data_2020, 
+             by = "iso3c")
+
+```
+
+```{r}
+#| label: country-api
+
+library(glue)
+
+# Obtain 2020 GDP in USD for inputted country
+get_gdp_2020 <- function(country, key = my_key)
+  {
+  
+  # Store url to access API with country and key queries
+  url <- glue("https://api.api-ninjas.com/v1/gdp?year=2020;country={country};X-Api-Key={key}")
+  
+  # Temporarily store JSON data safely
+  my_data <- safely(fromJSON)(url)
+  
+  # Check if JSON was successfully obtained
+  if (is.null(my_data$result) |
+      length(my_data$result) == 0) {
+    return(NA)
+  } else {
+    return(my_data$result$gdp_nominal)
+  }
+}
+
+```
+
+```{r}
+#| echo: false
+my_key <- "Zk9p4D2UR8cKVCa1GKMhJgqnWRTzotRYLJOlagkr"
+```
+
+
+```{r}
+#| eval: false
+# We used a personal API key stored as "my_key"
+
+# Get GDP for all countries
+gdps <- map_dbl(.x = country_data$iso3c, .f = get_gdp_2020)
+
+# Store GDP with country code as a tibble
+country_gdps <- tibble(iso3c = country_data$iso3c, GDP = gdps)
+
+# Save tibble as a csv
+write.csv(country_gdps, file = "country_gdps.csv")
+```
+
+```{r}
+# Read in csv GDP data
+gdp_data <- read.csv("country_gdps.csv")
+gdp_data <- gdp_data |>
+  select(-X)
+
+# Combine GDP with aggregate 2020 data
+country_meta_data <- country_data |>
+  inner_join(gdp_data, 
+             by = "iso3c", 
+             relationship = "many-to-many")
+
+```
+
+```{r}
+country_meta_data <- country_meta_data |>
+  mutate(gov_type = ifelse(is_communist == TRUE, "Communist",
+                           ifelse(is_democracy == TRUE, "Democracy",
+                                  ifelse(is_monarchy == TRUE, "Monarchy", "Other")))
+         )
+
+```
+
+```{r}
+plot_gdp_by_category <- function(cat_var) {
+  # Store variable names
+  var_name <- deparse(substitute(cat_var))
+  var_name2 <- recode(var_name,
+                      "regime_category" = "Regime Category",
+                      "gov_type" = "Government Type",
+                      .default = var_name)
+  
+  country_meta_data |>
+    filter(!is.na({{ cat_var }})) |> 
+    ggplot(aes(y = {{ cat_var }}, x = GDP, fill = {{ cat_var }})) + 
+    geom_density_ridges(alpha = 0.5) + 
+    scale_fill_viridis_d() + 
+    scale_x_log10(labels = scales::comma) +
+    labs(
+      x     = "GDP (log scale)",
+      y     = "", 
+      title = paste("Country GDP in USD (in Billions) by", var_name2), 
+      subtitle = paste("Comparing the GDP of Countries by", var_name2)
+    ) +
+    theme_bw() + 
+    theme(legend.position = "none", 
+          panel.grid.minor = element_blank(), 
+          text = element_text(family = "Helvetica", size = 12))
+  
+}
+```
+
+```{r}
+
+summarize_gdp_by_category <- function(cat_var) {
+  
+  # Store variable names for use inside gt()
+  var_name <- deparse(substitute(cat_var))
+  var_name2 <- recode(var_name,
+                      "regime_category" = "Regime Category",
+                      "gov_type" = "Government Type",
+                      .default = var_name)
+
+  country_meta_data |>
+    filter(!is.na({{ cat_var }})
+    ) |>
+    group_by({{ cat_var }}) |>
+    summarize(n = n(),
+              mean_GDP = mean(GDP, na.rm = TRUE),
+              med_GDP = median(GDP, na.rm = TRUE),
+              sd_GDP = sd(GDP, na.rm = TRUE),
+              se_GDP = sd_GDP / sqrt(n),
+              min_gdp = min(GDP, na.rm = TRUE),
+              max_gdp = max(GDP, na.rm = TRUE),
+              .groups    = "drop"
+    ) |>
+    arrange(desc(mean_GDP)) |>
+    gt() |>
+    fmt_currency(columns = 3:8,
+                 decimals = 2,
+                 currency = "USD",
+                 placement = "left",
+                 pattern = "{x}B"
+    ) |>
+    tab_spanner(label = "Category Breakdown",
+                columns = 1:2
+    ) |>
+    tab_spanner(label = "Midpoints",
+                columns = 3:4
+    ) |>
+    tab_spanner(label = "Variation",
+                columns = 5:6
+    ) |>
+    tab_spanner(label = "Range",
+                columns = 7:8
+    ) |>
+    cols_label(!!var_name := var_name2,
+               n = "Count",
+               mean_GDP = "Mean",
+               med_GDP = "Median",
+               sd_GDP = "Standard Deviation",
+               se_GDP = "Standard Error",
+               min_gdp = "Minimum",
+               max_gdp = "Maximum"
+    ) |>
+    data_color(method = "numeric",
+               palette = "Blues"
+    ) |>
+    tab_header(title = paste("Table of GDP Statistics by", var_name2),
+               subtitle = "(in USD in Billions)"
+    ) |>
+    tab_style(style = cell_text(weight = "bold"),
+              locations = list(cells_title(groups = "title"), 
+                               cells_title(groups = "subtitle"), 
+                               cells_column_labels())
+    ) |>
+    tab_footnote(md("*Note 1*: Standard error was calculated as the standard deviation divided by the square root of the sample size.")) |>
+    tab_footnote(md("*Note 2*: Darker blues represent greater values."))}
+
+```
+
+```{r}
+# Testing assumptions for model between log(GDP) and categorical variables 
+gdp_assumption_test <- function(cat_var) { 
+  
+  var_name <- deparse(substitute(cat_var))
+  model <- lm(reformulate(var_name, response = "log(GDP)"), data = country_meta_data)
+  
+  par(mfrow = c(2, 2))  # View all 4 diagnostic plots at once 
+  plot(model) 
+
+  print(shapiro.test(residuals(model)))   # testing normality assumption 
+  print(bptest(model))                    # testing equal variance assumption
+  }
+
+```
+
+```{r}
+
+plot_pop_by_category <- function(cat_var) {
+  
+  # Store variable names
+  var_name <- deparse(substitute(cat_var))
+  var_name2 <- recode(var_name,
+                      "regime_category" = "Regime Category",
+                      "gov_type" = "Government Type",
+                      .default = var_name)
+  
+  country_meta_data |>
+    filter(!is.na({{ cat_var }})) |> 
+    ggplot(aes(y = {{ cat_var }}, x = Population, fill = {{ cat_var }})) + 
+    geom_density_ridges(alpha = 0.5) + 
+    scale_x_log10(labels = scales::comma) + 
+    scale_fill_viridis_d() + 
+    labs(
+      x     = "Population (log scale)",
+      y     = "", 
+      title = paste("Country Population by", var_name2), 
+      subtitle = paste("Comparing the Populations of Countries by", var_name2)
+    ) +
+    theme_bw() + 
+    theme(legend.position = "none", 
+          panel.grid.minor = element_blank(), 
+          text = element_text(family = "Helvetica", size = 12))
+}
+
+```
+
+```{r}
+
+summarize_pop_by_category <- function(cat_var) {
+  
+  # Store variable names for use inside gt()
+  var_name <- deparse(substitute(cat_var))
+  var_name2 <- recode(var_name,
+                      "regime_category" = "Regime Category",
+                      "gov_type" = "Government Type",
+                      .default = var_name)
+
+  country_meta_data |>
+    filter(!is.na({{ cat_var }})
+    ) |>
+    group_by({{ cat_var }}) |>
+    summarize(n = n(),
+              mean_pop = mean(Population, na.rm = TRUE),
+              med_pop = median(Population, na.rm = TRUE),
+              sd_pop = sd(Population, na.rm = TRUE),
+              se_pop = sd_pop / sqrt(n),
+              min_pop = min(Population, na.rm = TRUE),
+              max_pop = max(Population, na.rm = TRUE),
+              .groups    = "drop"
+    ) |>
+    arrange(desc(mean_pop)) |>
+    gt() |>
+    fmt_number(columns = 3:8,
+                decimals = 2,
+    ) |>
+    tab_spanner(label = "Category Breakdown",
+                columns = 1:2
+    ) |>
+    tab_spanner(label = "Midpoints",
+                columns = 3:4
+    ) |>
+    tab_spanner(label = "Variation",
+                columns = 5:6
+    ) |>
+    tab_spanner(label = "Range",
+                columns = 7:8
+    ) |>
+    cols_label(!!var_name := var_name2,
+               n = "Count",
+               mean_pop = "Mean",
+               med_pop = "Median",
+               sd_pop = "Standard Deviation",
+               se_pop = "Standard Error",
+               min_pop = "Minimum",
+               max_pop = "Maximum"
+    ) |>
+    data_color(method = "numeric",
+               palette = "Blues"
+    ) |>
+    tab_header(title = paste("Table of Population Statistics by", var_name2)
+    ) |>
+    tab_style(style = cell_text(weight = "bold"),
+              locations = list(cells_title(groups = "title"), 
+                               cells_title(groups = "subtitle"), 
+                               cells_column_labels())
+    ) |>
+    tab_footnote(md("*Note 1*: Standard error was calculated as the standard deviation divided by the square root of the sample size.")) |>
+    tab_footnote(md("*Note 2*: Darker blues represent greater values."))
+}
+
+```
+
+```{r}
+# Testing assumptions for model between log(Population) and categorical variables 
+pop_assumption_test <- function(cat_var) { 
+  
+  var_name <- deparse(substitute(cat_var))
+  model <- lm(reformulate(var_name, response = "log(Population)"), data = country_meta_data)
+  
+  par(mfrow = c(2, 2))  # View all 4 diagnostic plots at once 
+  plot(model) 
+
+  print(shapiro.test(residuals(model)))   # testing normality assumption 
+  print(bptest(model))                    # testing equal variance assumption
+  
+  }
+
+```
+
+# Our Analysis
+
+## Tabset 1
+
+Are certain political ideologies more popular among higher/lower GDP countries?
+
+::: {.panel-tabset}
+### Ridgeline Plot 1
+
+
+```{r}
+
+plot_gdp_by_category(regime_category)
+
+```
+
+### Ridgeline Plot 2
+
+```{r}
+
+plot_gdp_by_category(gov_type)
+
+```
+
+### Summary Table 1
+
+```{r}
+summarize_gdp_by_category(regime_category)
+```
+
+### Summary Table 2
+
+```{r}
+summarize_gdp_by_category(gov_type)
+```
+
+### ANOVA Table 1
+
+```{r}
+# Welch's ANOVA
+gdp_regime_model <- oneway.test(log(GDP) ~ regime_category, data = country_meta_data, var.equal = FALSE)
+
+data.frame(
+    f_stat   = unname(gdp_regime_model$statistic),
+    num_df   = unname(gdp_regime_model$parameter[1]),
+    denom_df = unname(gdp_regime_model$parameter[2]),
+    p_value  = gdp_regime_model$p.value
+    ) |>
+  gt() |> 
+  cols_label(
+    f_stat   = "F-statistic", 
+    num_df   = "Numerator Degrees of Freedom", 
+    denom_df = "Denominator Degrees of Freedom", 
+    p_value  = "P-value"
+    ) |> 
+  tab_header(title = paste("Welch's ANOVA for log(GDP) and Regime Category")) |> 
+  tab_style(style = cell_text(weight = "bold"), 
+            locations = list(cells_title(groups = "title"), 
+                             cells_column_labels()
+                             )
+            ) |> 
+  tab_footnote(md("At an ⍺ = 0.05 significance level, we do not have enough evidence that there is an association between the geometric mean GDP and the regime categories of countries."))
+
+```
+
+### ANOVA Table 2
+
+```{r}
+
+# Welch's ANOVA
+gdp_gov_model <- oneway.test(log(GDP) ~ gov_type, data = country_meta_data, var.equal = FALSE)
+
+data.frame(
+    f_stat   = unname(gdp_gov_model$statistic),
+    num_df   = unname(gdp_gov_model$parameter[1]),
+    denom_df = unname(gdp_gov_model$parameter[2]),
+    p_value  = gdp_gov_model$p.value
+    ) |>
+  gt() |> 
+  cols_label(
+    f_stat   = "F-statistic", 
+    num_df   = "Numerator Degrees of Freedom", 
+    denom_df = "Denominator Degrees of Freedom", 
+    p_value  = "P-value"
+    ) |> 
+  tab_header(title = paste("Welch's ANOVA for log(GDP) and Goverment Type")) |> 
+  tab_style(style = cell_text(weight = "bold"), 
+            locations = list(cells_title(groups = "title"), 
+                             cells_column_labels()
+                             )
+            ) |> 
+  tab_footnote(md("At an ⍺ = 0.05 significance level, we do not have enough evidence that there is an association between the geometric mean GDP and the government types of countries."))
+
+```
+
+:::
+
+## Tabset 2
+
+What is the association between the political ideologies and population of a country?
+
+::: {.panel-tabset}
+### Ridgeline Plot 3
+
+```{r}
+
+plot_pop_by_category(regime_category)
+
+```
+
+### Ridgeline Plot 4
+
+```{r}
+
+plot_pop_by_category(gov_type)
+
+```
+
+### Summary Table 3
+
+```{r}
+summarize_pop_by_category(regime_category)
+```
+
+### Summary Table 4
+
+```{r}
+summarize_pop_by_category(gov_type)
+```
+
+### ANOVA Table 3
+
+```{r}
+# Welch's ANOVA between regime_category and log(Population)
+pop_regime_model <- oneway.test(log(Population) ~ regime_category, data = country_meta_data, var.equal = FALSE)
+
+data.frame(
+    f_stat   = unname(pop_regime_model$statistic),
+    num_df   = unname(pop_regime_model$parameter[1]),
+    denom_df = unname(pop_regime_model$parameter[2]),
+    p_value  = pop_regime_model$p.value
+    ) |>
+  gt() |> 
+  cols_label(
+    f_stat   = "F-statistic", 
+    num_df   = "Numerator Degrees of Freedom", 
+    denom_df = "Denominator Degrees of Freedom", 
+    p_value  = "P-value"
+    ) |> 
+  tab_header(title = paste("Welch's ANOVA for log(Population) and Regime Category")) |> 
+  tab_style(style = cell_text(weight = "bold"), 
+            locations = list(cells_title(groups = "title"), 
+                             cells_column_labels()
+                             )
+            ) |> 
+  tab_footnote(md("At an ⍺ = 0.05 significance level, we have extremely strong evidence that there is an association between the geometric mean population and the regime categories of countries."))
+```
+
+### ANOVA Table 4
+
+```{r}
+# Welch's ANOVA between government type and log(Population)
+pop_gov_model <- oneway.test(log(Population) ~ gov_type, data = country_meta_data, var.equal = FALSE)
+
+data.frame(
+    f_stat   = unname(pop_gov_model$statistic),
+    num_df   = unname(pop_gov_model$parameter[1]),
+    denom_df = unname(pop_gov_model$parameter[2]),
+    p_value  = pop_gov_model$p.value
+    ) |>
+  gt() |> 
+  cols_label(
+    f_stat   = "F-statistic", 
+    num_df   = "Numerator Degrees of Freedom", 
+    denom_df = "Denominator Degrees of Freedom", 
+    p_value  = "P-value"
+    ) |> 
+  tab_header(title = paste("Welch's ANOVA for log(Population) and Government Type")) |> 
+  tab_style(style = cell_text(weight = "bold"), 
+            locations = list(cells_title(groups = "title"), 
+                             cells_column_labels()
+                             )
+            ) |> 
+  tab_footnote(md("At an ⍺ = 0.05 significance level, we have extremely strong evidence that there is an association between the geometric mean population and the government types of countries."))
+```
+
+
+
+
+
+
+
+:::
+
+
+
+
+
+
+
+
