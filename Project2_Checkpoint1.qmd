@@ -438,7 +438,7 @@ pop_assumption_test <- function(cat_var) {
 Are certain political ideologies more popular among higher/lower GDP countries?
 
 ::: {.panel-tabset}
-### Ridgeline Plot 1
+### Regime Category Ridgeline Plot
 
 
 ```{r}
@@ -447,7 +447,7 @@ plot_gdp_by_category(regime_category)
 
 ```
 
-### Ridgeline Plot 2
+### Government Type Ridgeline Plot
 
 ```{r}
 
@@ -455,75 +455,16 @@ plot_gdp_by_category(gov_type)
 
 ```
 
-### Summary Table 1
+### Regime Category Summary Table
 
 ```{r}
 summarize_gdp_by_category(regime_category)
 ```
 
-### Summary Table 2
+### Government Type Summary Table
 
 ```{r}
 summarize_gdp_by_category(gov_type)
-```
-
-### ANOVA Table 1
-
-```{r}
-# Welch's ANOVA
-gdp_regime_model <- oneway.test(log(GDP) ~ regime_category, data = country_meta_data, var.equal = FALSE)
-
-data.frame(
-    f_stat   = unname(gdp_regime_model$statistic),
-    num_df   = unname(gdp_regime_model$parameter[1]),
-    denom_df = unname(gdp_regime_model$parameter[2]),
-    p_value  = gdp_regime_model$p.value
-    ) |>
-  gt() |> 
-  cols_label(
-    f_stat   = "F-statistic", 
-    num_df   = "Numerator Degrees of Freedom", 
-    denom_df = "Denominator Degrees of Freedom", 
-    p_value  = "P-value"
-    ) |> 
-  tab_header(title = paste("Welch's ANOVA for log(GDP) and Regime Category")) |> 
-  tab_style(style = cell_text(weight = "bold"), 
-            locations = list(cells_title(groups = "title"), 
-                             cells_column_labels()
-                             )
-            ) |> 
-  tab_footnote(md("At an ⍺ = 0.05 significance level, we do not have enough evidence that there is an association between the geometric mean GDP and the regime categories of countries."))
-
-```
-
-### ANOVA Table 2
-
-```{r}
-
-# Welch's ANOVA
-gdp_gov_model <- oneway.test(log(GDP) ~ gov_type, data = country_meta_data, var.equal = FALSE)
-
-data.frame(
-    f_stat   = unname(gdp_gov_model$statistic),
-    num_df   = unname(gdp_gov_model$parameter[1]),
-    denom_df = unname(gdp_gov_model$parameter[2]),
-    p_value  = gdp_gov_model$p.value
-    ) |>
-  gt() |> 
-  cols_label(
-    f_stat   = "F-statistic", 
-    num_df   = "Numerator Degrees of Freedom", 
-    denom_df = "Denominator Degrees of Freedom", 
-    p_value  = "P-value"
-    ) |> 
-  tab_header(title = paste("Welch's ANOVA for log(GDP) and Goverment Type")) |> 
-  tab_style(style = cell_text(weight = "bold"), 
-            locations = list(cells_title(groups = "title"), 
-                             cells_column_labels()
-                             )
-            ) |> 
-  tab_footnote(md("At an ⍺ = 0.05 significance level, we do not have enough evidence that there is an association between the geometric mean GDP and the government types of countries."))
-
 ```
 
 :::
@@ -533,7 +474,7 @@ data.frame(
 What is the association between the political ideologies and population of a country?
 
 ::: {.panel-tabset}
-### Ridgeline Plot 3
+### Regime Category Ridgeline Plot
 
 ```{r}
 
@@ -541,7 +482,7 @@ plot_pop_by_category(regime_category)
 
 ```
 
-### Ridgeline Plot 4
+### Government Type Ridgeline Plot
 
 ```{r}
 
@@ -549,79 +490,17 @@ plot_pop_by_category(gov_type)
 
 ```
 
-### Summary Table 3
+### Regime Category Summary Table
 
 ```{r}
 summarize_pop_by_category(regime_category)
 ```
 
-### Summary Table 4
+### Government Type Summary Table
 
 ```{r}
 summarize_pop_by_category(gov_type)
 ```
-
-### ANOVA Table 3
-
-```{r}
-# Welch's ANOVA between regime_category and log(Population)
-pop_regime_model <- oneway.test(log(Population) ~ regime_category, data = country_meta_data, var.equal = FALSE)
-
-data.frame(
-    f_stat   = unname(pop_regime_model$statistic),
-    num_df   = unname(pop_regime_model$parameter[1]),
-    denom_df = unname(pop_regime_model$parameter[2]),
-    p_value  = pop_regime_model$p.value
-    ) |>
-  gt() |> 
-  cols_label(
-    f_stat   = "F-statistic", 
-    num_df   = "Numerator Degrees of Freedom", 
-    denom_df = "Denominator Degrees of Freedom", 
-    p_value  = "P-value"
-    ) |> 
-  tab_header(title = paste("Welch's ANOVA for log(Population) and Regime Category")) |> 
-  tab_style(style = cell_text(weight = "bold"), 
-            locations = list(cells_title(groups = "title"), 
-                             cells_column_labels()
-                             )
-            ) |> 
-  tab_footnote(md("At an ⍺ = 0.05 significance level, we have extremely strong evidence that there is an association between the geometric mean population and the regime categories of countries."))
-```
-
-### ANOVA Table 4
-
-```{r}
-# Welch's ANOVA between government type and log(Population)
-pop_gov_model <- oneway.test(log(Population) ~ gov_type, data = country_meta_data, var.equal = FALSE)
-
-data.frame(
-    f_stat   = unname(pop_gov_model$statistic),
-    num_df   = unname(pop_gov_model$parameter[1]),
-    denom_df = unname(pop_gov_model$parameter[2]),
-    p_value  = pop_gov_model$p.value
-    ) |>
-  gt() |> 
-  cols_label(
-    f_stat   = "F-statistic", 
-    num_df   = "Numerator Degrees of Freedom", 
-    denom_df = "Denominator Degrees of Freedom", 
-    p_value  = "P-value"
-    ) |> 
-  tab_header(title = paste("Welch's ANOVA for log(Population) and Government Type")) |> 
-  tab_style(style = cell_text(weight = "bold"), 
-            locations = list(cells_title(groups = "title"), 
-                             cells_column_labels()
-                             )
-            ) |> 
-  tab_footnote(md("At an ⍺ = 0.05 significance level, we have extremely strong evidence that there is an association between the geometric mean population and the government types of countries."))
-```
-
-
-
-
-
-
 
 :::
 
