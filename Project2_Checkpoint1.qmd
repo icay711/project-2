@@ -8,9 +8,9 @@ format:
       - linkedin
       - twitter
       - github
+embed-resources: true
 execute: 
   warning: false
-  embed-resources: true
   code-fold: true
 ---
 
