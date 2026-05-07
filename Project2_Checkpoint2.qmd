@@ -582,7 +582,7 @@ p <- china_gdps |>
     y = "GDP (Billions)") +
   transition_reveal(years)
 
-china_anim <- animate(p, nframes = 100, fps = 10, end_pause = 30, renderer = gifski_renderer())
+china_anim <- animate(p, nframes = 100, fps = 10, end_pause = 30, renderer = gifski_renderer(tempfile(fileext = ".gif")))
 anim_save("china_gdps_over_time.gif", china_anim)
 china_anim
 ```
