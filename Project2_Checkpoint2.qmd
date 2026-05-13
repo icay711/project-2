@@ -447,9 +447,8 @@ pop_assumption_test <- function(cat_var) {
 
 # Main Research Question
 
-## Tabset 1
-
-Are certain political ideologies more popular among higher/lower GDP countries?
+## Column 1
+:::{.card title = "Are certain political ideologies more popular among higher/lower GDP countries?"}
 
 ::: {.panel-tabset}
 ### Regime Category Ridgeline Plot
@@ -483,12 +482,13 @@ summarize_gdp_by_category(gov_type)
 
 :::
 
-## Tabset 2
+:::
 
-Coloring each country by GDP
+## Column 2
 
-::: {.panel-tabset}
-### Leaflet Plot
+:::{.card title = "Leaflet Plot - Coloring each country by GDP"}
+
+Magnitude of GDP represented by the size of the orange circle.
 
 ```{r}
 
@@ -527,31 +527,15 @@ GDP_with_Coords <- global_gdps |>
 
 GDP_with_Coords <- st_as_sf(GDP_with_Coords)
 
-
-
-my_palette <- c("#C51517",
-                "#F3A360",
-                "#7AC7E2",
-                "#1C5A99",
-                "#F1FABF"
-)
-
-palette_levels <- c("Communist",
-                    "Pure Monarchy",
-                    "Democratic Monarchy",
-                    "Pure Democracy",
-                    "Other")
-
 gov_cols <- colorFactor(
-  palette = my_palette,
-  levels = palette_levels,
+  palette = "viridis",
   domain = GDP_with_Coords$gov_type
 )
 
 GDP_with_Coords |>
   leaflet() |>
   addTiles() |>
-  setView(lat = 0, lng = 0, zoom = 1.1) |>
+  setView(lat = 0, lng = 0, zoom = 1.4) |>
   addPolygons(color = "black",
               weight = 1,
               opacity = 1,
@@ -572,25 +556,24 @@ GDP_with_Coords |>
                    lng = ~lon,
                    lat = ~lat,
                    weight = 2,
-                   color = "#43BD00",
+                   color = "#EF7924",
+                   fillColor = "#EF7924",
                    opacity = 1,
+                   fillOpacity = 0.6,
                    label = ~glue("{name}: GDP = ${GDP}B"),
                    labelOptions = labelOptions(textsize = "15px")
   )
 
 ```
 
-
 :::
 
 
 # Focusing on China
 
-## Tabset 1
+## Column 1
 
-::: {.panel-tabset}
-
-### China Data
+::: {.card title = "Why China?"}
 
 Looking at the GDP data, we see that the 'Communist' Government Type has a very high average along with a high standard deviation. Looking deeper into the individual 2020 GDP country data, we noticed that China was a huge outlier and decided to take a look into the GDP of China from 1981-2020.
 
@@ -605,6 +588,10 @@ country_meta_data |>
   ) |> 
   cols_label(
     country_name = "Country"
+  ) |>
+  fmt_currency(columns = GDP) |>
+  tab_options(
+    table.width = pct(90)
   )
 
 
@@ -654,11 +641,9 @@ china_gdps <- china_gdps |>
 
 :::
 
-## Tabset 2
+## Column 2
 
-:::{.panel-tabset}
-
-### Animated Plot
+:::{.card title = "Animated Line Chart"}
 
 ```{r}
 
@@ -668,7 +653,7 @@ library(gifski)
 p <- china_gdps |> 
   ggplot(aes(x = years, y = GDP)) + 
   geom_area(stat = "identity",
-            fill = "#43BD00") +
+            fill = "#EF7924") +
   geom_line(color = "black") + 
   geom_point() +
   theme(legend.position = "none") +
