@@ -1,0 +1,634 @@
+---
+title: "Geopolitics"
+format:
+  dashboard:
+    theme: minty
+    logo: logo.png
+    nav-buttons:
+      - linkedin
+      - twitter
+      - github
+    orientation: columns
+embed-resources: true
+execute: 
+  warning: false
+  code-fold: true
+server: shiny
+---
+
+
+```{r}
+#| context: setup
+#| warning: false
+library(tidyverse)
+library(ggplot2)
+library(ggridges)
+library(lmtest)
+library(gt)
+library(countrycode)
+library(shiny)
+
+democracy_data <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-11-05/democracy_data.csv')
+```
+
+```{r}
+#| context: data
+#| results: 'asis'
+
+democracy_data <- democracy_data |> 
+  mutate(
+    continent = case_when(
+      
+      country_code %in% c(
+        "DZA","AGO","BEN","BWA","BFA","BDI","CMR","CPV","CAF","TCD","COM","COG","COD",
+        "CIV","DJI","EGY","GNQ","ERI","SWZ","ETH","GAB","GMB","GHA","GIN","GNB","KEN",
+        "LSO","LBR","LBY","MDG","MWI","MLI","MRT","MUS","MAR","MOZ","NAM","NER","NGA",
+        "RWA","STP","SEN","SYC","SLE","SOM","ZAF","SSD","SDN","TZA","TGO","TUN","UGA",
+        "ZMB","ZWE","ZAR"
+      ) ~ "Africa",
+
+      # North America (incl. Caribbean)
+      country_code %in% c(
+        "CAN","USA","MEX","BHS","BRB","CUB","DMA","DOM","GRD","HTI","JAM",
+        "KNA","LCA","VCT","TTO","ATG"
+      ) ~ "North America",
+
+      # Central America
+      country_code %in% c(
+        "BLZ","CRI","SLV","GTM","HND","NIC","PAN"
+      ) ~ "Central America",
+
+      # South America
+      country_code %in% c(
+        "ARG","BOL","BRA","CHL","COL","ECU","GUY","PRY","PER","SUR","URY","VEN"
+      ) ~ "South America",
+
+      country_code %in% c(
+        "AFG","ARM","AZE","BHR","BGD","BTN","BRN","KHM","CHN","CYP","GEO","IND","IDN",
+        "IRN","IRQ","ISR","JPN","JOR","KAZ","KWT","KGZ","LAO","LBN","MYS","MDV","MNG",
+        "MMR","NPL","PRK","OMN","PAK","PSE","PHL","QAT","SAU","SGP","KOR","LKA","SYR",
+        "TWN","TJK","THA","TLS","TUR","TKM","ARE","UZB","VNM","YEM"
+      ) ~ "Asia",
+
+      country_code %in% c(
+        "ALB","AND","AUT","BLR","BEL","BIH","BGR","HRV","CYP","CZE","DNK","EST","FIN",
+        "FRA","DEU","GRC","HUN","ISL","IRL","ITA","LVA","LIE","LTU","LUX","MLT","MDA",
+        "MCO","MNE","NLD","MKD","NOR","POL","PRT","ROU","RUS","SMR","SRB","SVK","SVN",
+        "ESP","SWE","CHE","UKR","GBR","VAT","GER","ROM"
+      ) ~ "Europe",
+
+      country_code %in% c(
+        "AUS","FJI","KIR","MHL","FSM","NRU","NZL","PLW","PNG","WSM","SLB","TON","TUV",
+        "VUT","NUR"
+      ) ~ "Oceania",
+
+      TRUE ~ NA_character_
+    )
+  ) |> 
+  filter(!is.na(continent))
+```
+
+```{r}
+#| context: data
+#| label: population-table
+
+library(rvest)
+
+populations <- read_html("https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population")
+
+pop_data <- populations |>
+  html_element("table.wikitable") |>
+  html_table(fill = TRUE) |>
+  select(
+    Country = 1, 
+    Population = 2
+    ) |>
+  mutate(
+    Country    = trimws(Country),
+    Population = as.numeric(gsub("[^0-9]", "", Population))  # strip anything that isn't a digit
+  ) |>
+  filter(!is.na(Population))
+
+```
+
+```{r}
+#| context: data
+#| label: country-data
+
+pop_data <- pop_data |>
+  mutate(
+    iso3c = countrycode(Country, 
+                        origin = "country.name", 
+                        destination = "iso3c"
+                        ))
+
+democracy_data_2020 <- democracy_data |>
+  filter(year == 2020) |>
+  mutate(
+    iso3c = countrycode(country_name, 
+                        origin = "country.name", 
+                        destination = "iso3c"
+                        ))
+
+# Now join based on iso3c country code
+country_data <- pop_data |>
+  inner_join(democracy_data_2020, 
+             by = "iso3c")
+
+```
+
+```{r}
+#| context: data
+#| label: country-api
+
+library(glue)
+library(jsonlite)
+library(httr)
+
+# Obtain 2020 GDP in USD for inputted country
+get_gdp_2020 <- function(country, key = my_key)
+  {
+  
+  # Store url to access API with country and key queries
+  url <- glue("https://api.api-ninjas.com/v1/gdp?year=2020;country={country};X-Api-Key={key}")
+  
+  # Temporarily store JSON data safely
+  my_data <- safely(fromJSON)(url)
+  
+  # Check if JSON was successfully obtained
+  if (is.null(my_data$result) |
+      length(my_data$result) == 0) {
+    return(NA)
+  } else {
+    return(my_data$result$gdp_nominal)
+  }
+}
+
+```
+
+```{r}
+#| context: data
+#| echo: false
+my_key <- "Co1aNrJSrFjlk3zmHb2jrVqKvyfcBq4wJ5TP3JMo"
+```
+
+
+```{r}
+#| context: data
+#| eval: false
+# We used a personal API key stored as "my_key"
+
+# Get GDP for all countries
+gdps <- map_dbl(.x = country_data$iso3c, .f = get_gdp_2020)
+
+# Store GDP with country code as a tibble
+country_gdps <- tibble(iso3c = country_data$iso3c, GDP = gdps)
+
+# Save tibble as a csv
+write.csv(country_gdps, file = "country_gdps.csv")
+```
+
+```{r}
+#| context: data
+# Read in csv GDP data
+gdp_data <- read.csv("country_gdps.csv")
+gdp_data <- gdp_data |>
+  select(-X)
+
+# Combine GDP with aggregate 2020 data
+country_meta_data <- country_data |>
+  inner_join(gdp_data, 
+             by = "iso3c", 
+             relationship = "many-to-many")
+
+```
+
+```{r}
+#| context: data
+country_meta_data <- country_meta_data |>
+  filter(!is.na(regime_category_index)) |> 
+  mutate(gov_type = case_when(
+    is_communist == TRUE ~ "Communist",
+    is_democracy == TRUE & is_monarchy == TRUE ~ "Democratic Monarchy",
+    is_democracy == TRUE & is_monarchy == FALSE ~ "Pure Democracy",
+    is_democracy == FALSE & is_monarchy == TRUE ~ "Pure Monarchy",
+    TRUE ~ "Other"),
+    gov_type = factor(gov_type, levels = c("Pure Democracy",
+                                           "Pure Monarchy",
+                                           "Democratic Monarchy",
+                                           "Communist",
+                                           "Other"
+                                           )),
+    regime_category = case_when(
+    regime_category_index == 0 ~ "Parliamentary democracy",
+    regime_category_index == 1 ~ "Mixed democratic", 
+    regime_category_index == 2 ~ "Presidential democracy",
+    regime_category_index == 3 ~ "Civilian dictatorship", 
+    regime_category_index == 4 ~ "Military dictatorship",
+    regime_category_index == 5 ~ "Royal dictatorship")
+  )
+
+```
+
+```{r}
+#| context: data
+plot_gdp_by_category <- function(cat_var, data = country_meta_data) {
+  data |>
+    filter(!is.na({{ cat_var }})) |> 
+    ggplot(aes(y = {{ cat_var }}, x = GDP, fill = {{ cat_var }})) + 
+    geom_density_ridges(alpha = 0.5) + 
+    scale_fill_viridis_d() + 
+    scale_x_log10(labels = scales::comma) +
+    labs(
+      x     = "GDP (log scale)",
+      y     = "", 
+      title = paste("Country GDP in USD (in Billions) by Government Type"), 
+      subtitle = paste("Comparing the GDP of Countries by Government Type")
+    ) +
+    theme_bw() + 
+    theme(legend.position = "none", 
+          panel.grid.minor = element_blank(), 
+          text = element_text(family = "Helvetica", size = 12))
+  
+}
+```
+
+```{r}
+#| context: data
+summarize_gdp_by_category <- function(cat_var, data = country_meta_data) {
+  
+  data |>
+    filter(!is.na({{ cat_var }})
+    ) |>
+    group_by({{ cat_var }}) |>
+    summarize(n = n(),
+              mean_GDP = mean(GDP, na.rm = TRUE),
+              med_GDP = median(GDP, na.rm = TRUE),
+              sd_GDP = sd(GDP, na.rm = TRUE),
+              se_GDP = sd_GDP / sqrt(n),
+              min_gdp = min(GDP, na.rm = TRUE),
+              max_gdp = max(GDP, na.rm = TRUE),
+              .groups    = "drop"
+    ) |>
+    arrange(desc(mean_GDP)) |>
+    gt() |>
+    fmt_currency(columns = 3:8,
+                 decimals = 2,
+                 currency = "USD",
+                 placement = "left",
+                 pattern = "{x}B"
+    ) |>
+    tab_spanner(label = "Category Breakdown",
+                columns = 1:2
+    ) |>
+    tab_spanner(label = "Midpoints",
+                columns = 3:4
+    ) |>
+    tab_spanner(label = "Variation",
+                columns = 5:6
+    ) |>
+    tab_spanner(label = "Range",
+                columns = 7:8
+    ) |>
+    cols_label(gov_type = "Government Type",
+               n = "Count",
+               mean_GDP = "Mean",
+               med_GDP = "Median",
+               sd_GDP = "Standard Deviation",
+               se_GDP = "Standard Error",
+               min_gdp = "Minimum",
+               max_gdp = "Maximum"
+    ) |>
+    data_color(method = "numeric",
+               palette = "Blues"
+    ) |>
+    tab_header(title = paste("Table of GDP Statistics by Government Type"),
+               subtitle = "(in USD in Billions)"
+    ) |>
+    tab_style(style = cell_text(weight = "bold"),
+              locations = list(cells_title(groups = "title"), 
+                               cells_title(groups = "subtitle"), 
+                               cells_column_labels())
+    ) |>
+    tab_footnote(md("*Note 1*: Standard error was calculated as the standard deviation divided by the square root of the sample size.")) |>
+    tab_footnote(md("*Note 2*: Darker blues represent greater values."))
+  }
+
+```
+
+# Main Research Question
+
+## Column 1
+:::{.card title = "Are certain political ideologies more popular among higher/lower GDP countries?"}
+
+::: {.toolbar}
+
+
+```{r}
+checkboxGroupInput(inputId = "GovTypes",
+              label = "Select Government Types to Compare:",
+              choices = unique(country_meta_data$gov_type),
+              selected = unique(country_meta_data$gov_type))
+
+```
+
+:::
+
+::: {.panel-tabset}
+
+### Ridgeline Plot
+
+```{r}
+plotOutput("gov_type_plot")
+```
+
+### Summary Table
+
+```{r}
+gt_output("gov_type_table")
+```
+
+:::
+
+:::
+
+## Column 2
+
+:::{.card title = "Leaflet Plot - Coloring each country by Government Type"}
+
+Magnitude of GDP represented by the size of the orange circle. GDP is scaled to radius = $\frac{\sqrt{GDP}}{5}$
+
+```{r}
+#| cache: true
+library(sf)
+library(leaflet)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+global_map <- ne_countries(scale = "medium", returnclass = "sf")
+
+center_coords <- global_map |>
+  st_centroid() |>
+  st_coordinates() |>
+  as.tibble()
+
+country_centers <- tibble(iso_a3 = global_map$iso_a3,
+                          lon = center_coords$X,
+                          lat = center_coords$Y
+) |>
+  select(iso_a3, lon, lat) |>
+  filter(!is.na(lon),
+         !is.na(lat))
+
+world_map <- global_map |>
+  left_join(country_centers,
+            by = "iso_a3")
+
+
+
+global_gdps <- country_meta_data |>
+  select(Country, gov_type, GDP, iso3c)
+
+GDP_with_Coords <- global_gdps |>
+  left_join(world_map,
+            by = c("iso3c" = "iso_a3"))
+
+GDP_with_Coords <- st_as_sf(GDP_with_Coords)
+
+gov_cols <- colorFactor(
+  palette = "viridis",
+  domain = GDP_with_Coords$gov_type
+)
+
+GDP_with_Coords |>
+  leaflet() |>
+  addTiles() |>
+  setView(lat = 0, lng = 0, zoom = 1.4) |>
+  addPolygons(color = "black",
+              weight = 1,
+              opacity = 1,
+              fillColor = ~gov_cols(gov_type),
+              fillOpacity = 1,
+  ) |>
+  addLegend(pal = gov_cols,
+            values = ~factor(gov_type,
+                             levels = c("Communist",
+                                        "Pure Monarchy",
+                                        "Democratic Monarchy",
+                                        "Pure Democracy",
+                                        "Other")
+            ),
+            title = "Government Type"
+  ) |>
+  addCircleMarkers(radius =  ~sqrt(GDP) / 5,
+                   lng = ~lon,
+                   lat = ~lat,
+                   weight = 2,
+                   color = "#EF7924",
+                   fillColor = "#EF7924",
+                   opacity = 1,
+                   fillOpacity = 0.6,
+                   label = ~glue("{name}: GDP = ${GDP}B"),
+                   labelOptions = labelOptions(textsize = "15px")
+  )
+
+```
+
+:::
+
+
+# Focusing on China
+
+## Column 1
+
+::: {.card title = "Why China?"}
+
+Looking at the GDP data, we see that the 'Communist' Government Type has a very high average along with a high standard deviation. Looking deeper into the individual 2020 GDP country data, we noticed that China was a huge outlier and decided to take a look into the GDP of China from 1981-2020.
+
+```{r}
+#| context: data
+country_meta_data |> 
+  filter(gov_type == "Communist") |> 
+  select(country_name, GDP) |> 
+  slice_max(order_by = GDP, n = 5) |> 
+  gt() |> 
+  tab_header(
+    title = "GDP's of Communist Countries"
+  ) |> 
+  cols_label(
+    country_name = "Country"
+  ) |>
+  fmt_currency(columns = GDP) |>
+  tab_options(
+    table.width = pct(90)
+  )
+
+
+# Obtain 2020 GDP in USD for inputted country
+get_gdp_china <- function(year, key = my_key)
+  {
+  
+  # Store url to access API with country and key queries
+  url <- glue("https://api.api-ninjas.com/v1/gdp?country=China&year={year}&X-Api-Key={key}")
+  
+
+  
+  # Temporarily store JSON data safely
+  my_data <- safely(fromJSON)(url)
+  
+  # Check if JSON was successfully obtained
+  if (is.null(my_data$result) |
+      length(my_data$result) == 0) {
+    return(NA)
+  } else {
+    return(my_data$result$gdp_nominal)
+  }
+}
+```
+
+```{r}
+#| context: data
+#| eval: false
+
+# Get GDP for China
+china_gdps <- map_dbl(.x = 1981:2020, .f = get_gdp_china)
+
+# Store GDP with years as a tibble
+china_gdps <- tibble(years = 1981:2020, GDP = china_gdps)
+
+# Save tibble as a csv
+ write.csv(china_gdps, file = "china_gdps.csv")
+```
+
+```{r}
+#| context: data
+# Read in csv GDP data
+china_gdps <- read.csv("china_gdps.csv")
+
+china_gdps <- china_gdps |>
+  select(-X)
+
+```
+
+:::
+
+## Column 2
+
+:::{.card title = "Animated Line Chart"}
+
+```{r}
+#| cache: true
+library(gganimate)
+library(gifski)
+
+p <- china_gdps |> 
+  ggplot(aes(x = years, y = GDP)) + 
+  geom_area(stat = "identity",
+            fill = "#EF7924") +
+  geom_line(color = "black") + 
+  geom_point() +
+  theme(legend.position = "none") +
+  theme_bw() +
+  labs(
+    title = "GDP of China in USD from 1981-2020",
+    x = "Year",
+    y = "GDP (Billions)") +
+  transition_reveal(years)
+
+china_anim <- animate(p, nframes = 100, fps = 10, end_pause = 30, renderer = gifski_renderer(tempfile(fileext = ".gif")))
+anim_save("china_gdps_over_time.gif", china_anim)
+
+china_anim
+```
+
+```{r}
+#| context: server
+
+filtered_gov_types <- reactive({
+  req(input$GovTypes)
+  filt_countries <- country_meta_data |>
+    filter(gov_type %in% input$GovTypes)
+  filt_countries
+})
+
+output$gov_type_plot <- renderPlot({
+  filtered_gov_types() |>
+    ggplot(aes(y = gov_type,
+               x = GDP,
+               fill = gov_type)
+           ) + 
+    geom_density_ridges(alpha = 0.5) + 
+    scale_fill_viridis_d() + 
+    scale_x_log10(labels = scales::comma) +
+    labs(
+      x     = "GDP (log scale)",
+      y     = "", 
+      title = "Country GDP in USD (in Billions) by Government Type", 
+      subtitle = "Comparing the GDP of Countries by Government Type"
+      ) +
+    theme_bw() + 
+    theme(legend.position = "none", 
+          panel.grid.minor = element_blank(), 
+          text = element_text(family = "Helvetica", size = 12))
+})
+
+
+
+output$gov_type_table <- render_gt({
+  filtered_gov_types() |>
+    group_by(gov_type) |>
+    summarize(n = n(),
+              mean_GDP = mean(GDP, na.rm = TRUE),
+              med_GDP = median(GDP, na.rm = TRUE),
+              sd_GDP = sd(GDP, na.rm = TRUE),
+              se_GDP = sd_GDP / sqrt(n),
+              min_gdp = min(GDP, na.rm = TRUE),
+              max_gdp = max(GDP, na.rm = TRUE),
+              .groups    = "drop"
+    ) |>
+    arrange(desc(mean_GDP)) |>
+    gt() |>
+    fmt_currency(columns = 3:8,
+                 decimals = 2,
+                 currency = "USD",
+                 placement = "left",
+                 pattern = "{x}B"
+    ) |>
+    tab_spanner(label = "Category Breakdown",
+                columns = 1:2
+    ) |>
+    tab_spanner(label = "Midpoints",
+                columns = 3:4
+    ) |>
+    tab_spanner(label = "Variation",
+                columns = 5:6
+    ) |>
+    tab_spanner(label = "Range",
+                columns = 7:8
+    ) |>
+    cols_label(gov_type = "Government Type",
+               n = "Count",
+               mean_GDP = "Mean",
+               med_GDP = "Median",
+               sd_GDP = "Standard Deviation",
+               se_GDP = "Standard Error",
+               min_gdp = "Minimum",
+               max_gdp = "Maximum"
+    ) |>
+    data_color(method = "numeric",
+               palette = "Blues"
+    ) |>
+    tab_header(title = paste("Table of GDP Statistics by Government Type"),
+               subtitle = "(in USD in Billions)"
+    ) |>
+    tab_style(style = cell_text(weight = "bold"),
+              locations = list(cells_title(groups = "title"), 
+                               cells_title(groups = "subtitle"), 
+                               cells_column_labels())
+    ) |>
+    tab_footnote(md("*Note 1*: Standard error was calculated as the standard deviation divided by the square root of the sample size.")) |>
+    tab_footnote(md("*Note 2*: Darker blues represent greater values."))
+})
+
+```
+
