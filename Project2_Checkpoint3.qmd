@@ -453,12 +453,12 @@ country_meta_data |>
   slice_max(order_by = GDP, n = 5) |> 
   gt() |> 
   tab_header(
-    title = "GDP's of Communist Countries"
+    title = "GDPs of Communist Countries"
   ) |> 
   cols_label(
     country_name = "Country"
   ) |>
-  fmt_currency(columns = GDP) |>
+  fmt_currency(columns = GDP, scale_by = 1000000000) |>
   tab_options(
     table.width = pct(90)
   )
